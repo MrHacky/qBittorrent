@@ -42,6 +42,8 @@ QT_BEGIN_NAMESPACE
 class QTcpSocket;
 QT_END_NAMESPACE
 
+class HttpTorrentConnection;
+
 class HttpConnection : public QObject
 {
   Q_OBJECT
@@ -54,6 +56,7 @@ public:
 
 protected slots:
   void write();
+  void write_partial();
   void respond();
   void respondTorrentsJson();
   void respondGenPropertiesJson(const QString& hash);
@@ -89,6 +92,40 @@ private:
   HttpRequestParser m_parser;
   HttpResponseGenerator m_generator;
   QByteArray m_receivedData;
+
+  friend HttpTorrentConnection;
 };
+
+class HttpTorrentConnection : public QObject
+{
+  Q_OBJECT
+  Q_DISABLE_COPY(HttpTorrentConnection)
+
+public:
+  HttpTorrentConnection(HttpConnection *m_connection);
+  ~HttpTorrentConnection();
+
+private slots:
+  void timer_tick();
+
+private:
+  void write_error(int code, QString message);
+  void acquire_priority(int piece);
+  void release_priority();
+
+private:
+  HttpConnection *m_connection;
+
+  QString m_hash;
+  quint64 req_start;
+  quint64 req_end;
+  quint64 file_offset;
+  quint64 file_size;
+  QString file_path;
+  quint64 num_pieces;
+  quint64 piece_size;
+  int blocking_piece;
+};
+
 
 #endif

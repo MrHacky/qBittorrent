@@ -187,6 +187,12 @@ void HttpConnection::translateDocument(QString& data) {
   }
 }
 
+void HttpConnection::write_partial()
+{
+  m_generator.setContentEncoding(false);
+  m_socket->write(m_generator.toByteArray());
+}
+
 void HttpConnection::respond() {
   if ((m_socket->peerAddress() != QHostAddress::LocalHost
       && m_socket->peerAddress() != QHostAddress::LocalHostIPv6)
@@ -310,6 +316,11 @@ void HttpConnection::respond() {
       }
       return;
     }
+  }
+
+  if (list[0] == "stream") {
+      new HttpTorrentConnection(this);
+      return;
   }
 
   // Icons from theme
@@ -678,4 +689,167 @@ void HttpConnection::increaseTorrentsPriority(const QStringList &hashes)
     } catch(invalid_handle& h) {}
     torrent_queue.pop();
   }
+}
+
+HttpTorrentConnection::HttpTorrentConnection(HttpConnection *parent)
+  : QObject(parent), m_connection(parent), blocking_piece(-1)
+{
+    qWarning() << "Request------------:";
+
+    // Get url params/header
+    m_hash = m_connection->m_parser.get("hash");
+    QString fnum = m_connection->m_parser.get("file");
+    QString range = m_connection->m_parser.header().value("Range");
+
+    qWarning() << "req_range: " << range;
+
+    // validate 'hash'
+    QTorrentHandle h = QBtSession::instance()->getTorrentHandle(m_hash);
+    if (!h.is_valid() || !h.has_metadata()) {
+        write_error(404, "Torrent or metadata not found.");
+        return;
+    }
+
+    #if LIBTORRENT_VERSION_NUM < 10000
+        torrent_info const* tf = &h.get_torrent_info();
+    #else
+        boost::intrusive_ptr<torrent_info const> tf = h.torrent_file();
+    #endif
+    const torrent_info& t = *tf;
+
+    bool fidx_ok = false;
+    int fidx = fnum.toInt(&fidx_ok);
+
+    // validate 'file'
+    if (!fidx_ok || fidx < 0 || fidx >= t.num_files()) {
+        write_error(400, "Invalid file index in torrent.");
+        return;
+    }
+    const file_entry& file = t.file_at(fidx);
+
+    req_start = 0;
+    req_end = file.size;
+    // validate 'range'
+    if (range != "") {
+        QRegExp rxrange("^bytes ([0-9]*)-([0-9]*)$");
+        if (rxrange.indexIn(range) != -1) {
+            if (rxrange.cap(1) != "")
+                req_start = rxrange.cap(1).toULongLong();
+            if (rxrange.cap(2) != "")
+                req_end = rxrange.cap(2).toULongLong() + 1;
+            m_connection->m_generator.setStatusLine(206, "OK");
+            m_connection->m_generator.setValue("Content-Range", "bytes " + QString::number(req_start) + '-' + QString::number(req_end - 1) + '/' + QString::number(file.size));
+        } else {
+            write_error(400, "Invalid range request.");
+            return;
+        }
+    } else
+        m_connection->m_generator.setStatusLine(200, "OK");
+
+    h.set_sequential_download(true);
+
+    m_connection->m_generator.setContentLength(req_end - req_start);
+    m_connection->m_generator.setValue("Accept-Ranges", "bytes");
+    m_connection->m_generator.setMessage(QByteArray());
+    m_connection->write_partial();
+
+    file_path = h.absolute_files_path()[fidx];
+    file_offset = file.offset;
+    file_size = file.size;
+    num_pieces = t.num_pieces();
+    piece_size = t.piece_length();
+
+    qWarning() << "req_start: " << req_start;
+    qWarning() << "req_end: " << req_end;
+
+    QTimer* timer = new QTimer(this);
+    connect(timer, SIGNAL(timeout()), this, SLOT(timer_tick()));
+    timer->setInterval(1000);
+    timer->start();
+    timer_tick();
+}
+
+void HttpTorrentConnection::timer_tick()
+{
+  if (m_connection->m_socket->bytesToWrite() > 64*1024) {
+    release_priority();
+    return;
+  }
+
+  qWarning() << "timer tick!";
+  qWarning() << "req_start: " << req_start;
+
+  QTorrentHandle h = QBtSession::instance()->getTorrentHandle(m_hash);
+
+  // Determine the first and last piece of the file
+  quint64 req_piece = floor((file_offset + req_start + 1) / (float) piece_size);
+  Q_ASSERT(req_piece >= 0 && req_piece < num_pieces);
+  quint64 req_offset =  ((req_piece+1) * piece_size) - (file_offset + req_start);
+  req_offset = piece_size - req_offset;
+  quint64 max_len_pieces = 0;
+  quint64 cp = req_piece;
+  for (; cp < num_pieces && h.have_piece(cp); ++cp)
+    max_len_pieces += piece_size;
+  qWarning() << "piece_start: " << req_piece;
+  qWarning() << "piece_missing: " << cp;
+
+  if (max_len_pieces > 0)
+    max_len_pieces -= req_offset;
+  quint64 max_len = std::min(max_len_pieces, req_end - req_start);
+
+  if (cp < num_pieces)
+    acquire_priority(cp);
+  if (max_len == 0)
+    return;
+
+  h.flush_cache();
+
+  if (max_len > 1000*1000*10)
+    max_len = 1000*1000*10;
+
+  QByteArray data;
+  QFile qf(file_path);
+  if (qf.open(QIODevice::ReadOnly)) {
+    qf.seek(req_start);
+    data = qf.read(max_len);
+  };
+  qWarning() << "max_len  : " << max_len;
+  req_start += data.size();
+  quint64 w = m_connection->m_socket->write(data);
+  qWarning() << "data_write : " << w;
+
+  if (w != data.size() || req_start >= req_end)
+    m_connection->m_socket->disconnectFromHost();
+}
+
+void HttpTorrentConnection::write_error(int code, QString message)
+{
+    m_connection->m_generator.setStatusLine(code, message);
+    m_connection->m_generator.setContentEncoding(m_connection->m_parser.acceptsEncoding());
+    m_connection->write();
+}
+
+void HttpTorrentConnection::acquire_priority(int piece)
+{
+    if (piece != blocking_piece) {
+        release_priority();
+        blocking_piece = piece;
+
+        QBtSession::instance()->getTorrentHandle(m_hash).piece_priority(blocking_piece, 7);
+        qWarning() << "acq_prio: " << blocking_piece;
+    }
+}
+
+void HttpTorrentConnection::release_priority()
+{
+    if (blocking_piece != -1) {
+        QBtSession::instance()->getTorrentHandle(m_hash).piece_priority(blocking_piece, 1);
+        qWarning() << "rel_prio: " << blocking_piece;
+        blocking_piece = -1;
+    }
+}
+
+HttpTorrentConnection::~HttpTorrentConnection()
+{
+    release_priority();
 }
