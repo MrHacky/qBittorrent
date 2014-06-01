@@ -1078,7 +1078,9 @@ void HttpLoadingConnection::timer_tick()
     } else if (m_maxticks > 0)
         --m_maxticks;
 
-    QImage img(500, 250, QImage::Format_RGB32);
+    int resdiv = 4;
+    //QImage img(500, 250, QImage::Format_RGB32);
+    QImage img(1920 / resdiv, 1080 / resdiv, QImage::Format_RGB32);
     {
         QTorrentHandle h = QBtSession::instance()->getTorrentHandle(m_hash);
         #if LIBTORRENT_VERSION_NUM < 10000
@@ -1094,7 +1096,7 @@ void HttpLoadingConnection::timer_tick()
 
         bool allzero = true;
 
-        QString output = QString::number(m_maxticks / 2) + "\t" + QTime::currentTime().toString() + "\r\n";
+        QString output = QString::number(m_maxticks / 2) + "\t" + QTime::currentTime().toString() + "\t" + QString::number(qint64(h.download_payload_rate())) + "\r\n";
         unsigned int nbFiles = h.num_files();
         std::vector<libtorrent::size_type> progress;
         h.file_progress(progress);
@@ -1137,19 +1139,19 @@ void HttpLoadingConnection::timer_tick()
 
         QPainter pnt(&img);
         QRect r1(QPoint(), img.size());
-        QRect r2(r1.left() + 5, r1.top() + 5, r1.width() - 10, r1.height() - 10);
+        QRect r2(r1.left() + (20 / resdiv), r1.top() + (20 / resdiv), r1.width() - (40 / resdiv), r1.height() - (40 / resdiv));
 
         pnt.fillRect(r1, QColor(0, 0, 0));
 
         pnt.setPen(QColor(255, 255, 255));
-        pnt.setFont(QFont("", 10));
+        pnt.setFont(QFont("", 40 / resdiv));
         pnt.drawText(r2, Qt::TextExpandTabs, output);
     }
     QByteArray ba;
     {
         QBuffer buf(&ba);
         buf.open(QIODevice::WriteOnly);
-        img.save(&buf, "JPEG", 90);
+        img.save(&buf, "JPEG", 50);
     }
     QByteArray hdr = QString(QString()
         + "Content-Type: image/jpeg\r\n"
