@@ -1,0 +1,103 @@
+Index: src/piece_picker.cpp
+===================================================================
+--- src/piece_picker.cpp	(revision 9982)
++++ src/piece_picker.cpp	(working copy)
+@@ -1457,31 +1457,75 @@
+ 
+ 		if (options & sequential)
+ 		{
+-			if (options & reverse)
+-			{
+-				for (int i = m_reverse_cursor - 1; i >= m_cursor; --i)
+-				{	
+-					if (!is_piece_free(i, pieces)) continue;
+-					num_blocks = add_blocks(i, pieces
+-						, interesting_blocks, backup_blocks
+-						, backup_blocks2, num_blocks
+-						, prefer_whole_pieces, peer, suggested_pieces
+-						, speed, options);
+-					if (num_blocks <= 0) return;
++			if (m_cursor < m_reverse_cursor) {
++				std::vector<int> picked_starts;
++				std::vector<bool> added_pieces(m_reverse_cursor - m_cursor, false);
++				bool addcursor = false;
++
++				for (int i = 0; i < m_reverse_cursor; ++i)
++					if (piece_priority(i) == 7)
++						if (i <= m_cursor)
++							addcursor = true;
++						else
++							picked_starts.push_back(i);
++				if (addcursor)
++					picked_starts.push_back(m_cursor);
++				//std::cerr << "Starts: ";
++				//for (int s = 0; s < picked_starts.size(); ++s)
++				//    std::cerr << picked_starts[s] << ',';
++				//std::cerr << '\n';
++				if (!picked_starts.empty()) {
++					for (int c = 0; c < (m_reverse_cursor - m_cursor); ++c) {
++						for (int s = 0; s < picked_starts.size(); ++s) {
++							int i = picked_starts[s];
++							if (options & reverse) {
++								if (i == m_cursor)
++									i = m_reverse_cursor;
++								i -= (c + 1);
++							} else
++								i += c;
++							if (i < m_cursor || i >= m_reverse_cursor) continue;
++							if (!is_piece_free(i, pieces)) continue;
++							if (added_pieces[i - m_cursor]) continue;
++							added_pieces[i - m_cursor] = true;
++							num_blocks = add_blocks(i, pieces
++								, interesting_blocks, backup_blocks
++								, backup_blocks2, num_blocks
++								, prefer_whole_pieces, peer, suggested_pieces
++								, speed, options);
++							if (num_blocks <= 0) return;
++						}
++					}
+ 				}
+-			}
+-			else
+-			{
+-				for (int i = m_cursor; i < m_reverse_cursor; ++i)
+-				{	
+-					if (!is_piece_free(i, pieces)) continue;
+-					num_blocks = add_blocks(i, pieces
+-						, interesting_blocks, backup_blocks
+-						, backup_blocks2, num_blocks
+-						, prefer_whole_pieces, peer, suggested_pieces
+-						, speed, options);
+-					if (num_blocks <= 0) return;
++
++				if (options & reverse)
++				{
++					for (int i = m_reverse_cursor - 1; i >= m_cursor; --i)
++					{
++						if (!is_piece_free(i, pieces)) continue;
++						if (added_pieces[i - m_cursor]) continue;
++						num_blocks = add_blocks(i, pieces
++							, interesting_blocks, backup_blocks
++							, backup_blocks2, num_blocks
++							, prefer_whole_pieces, peer, suggested_pieces
++							, speed, options);
++						if (num_blocks <= 0) return;
++					}
+ 				}
++				else
++				{
++					for (int i = m_cursor; i < m_reverse_cursor; ++i)
++					{
++						if (!is_piece_free(i, pieces)) continue;
++						if (added_pieces[i - m_cursor]) continue;
++						num_blocks = add_blocks(i, pieces
++							, interesting_blocks, backup_blocks
++							, backup_blocks2, num_blocks
++							, prefer_whole_pieces, peer, suggested_pieces
++							, speed, options);
++						if (num_blocks <= 0) return;
++					}
++				}
+ 			}
+ 		}
+ 		else if (options & rarest_first)
