@@ -135,6 +135,7 @@ QByteArray HttpResponseGenerator::toByteArray() {
     }
   }
 
-  setContentLength(m_message.size());
+  if (!hasContentLength())
+    setContentLength(m_message.size());
   return QHttpResponseHeader::toString().toUtf8() + m_message;
 }
