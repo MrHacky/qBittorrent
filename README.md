@@ -21,4 +21,10 @@ Mostly working, but with very hacky/ugly code.
 
 ##Details:
 
-TODO
+####libtorrent
+
+Some changes have been made to libtorrent as well. Libtorrent needs to be
+compiled with ./libtorrent.patch applied to it. (based on RC_0_16 branch).
+The change allows is to combine sequential download with prioritizing of
+specific pieces, which will download sequentially starting at those pieces.
+
