@@ -1,42 +1,24 @@
-qBittorrent - A BitTorrent client in Qt
+qBittorrent - Improving Streaming support
 ------------------------------------------
-
-[![Build Status](https://travis-ci.org/qbittorrent/qBittorrent.png?branch=v3_1_x)](https://travis-ci.org/qbittorrent/qBittorrent)
 ********************************
-###Description:
+##Description:
 qBittorrent is a bittorrent client programmed in C++ / Qt that uses
 libtorrent (sometimes called libtorrent-rasterbar) by Arvid Norberg.
 
-It aims to be a good alternative to all other bittorrent clients
-out there. qBittorrent is fast, stable and provides unicode
-support as well as many features.
+This fork aims to improve streaming support. The main goal is to be
+able to 'play' magnet: links on something like xbmc. (Existing solutions
+don't work for all torrents/media files)
 
-This product includes GeoLite data created by MaxMind, available from
-http://maxmind.com/
+##Warning:
 
-### Installation:
-For installation, follow the instructions from INSTALL file, but simple:
+This repository is not stable and history will be rewritten/rebased.
+Authentication on the qBittorrent webinterface is disabled for debugging
+purposes.
 
-```
-./configure
-make && make install
-qbittorrent
-```
+##Status:
 
-will install and execute qBittorrent hopefully without any problem.
+Mostly working, but with very hacky/ugly code.
 
-For more information please visit:
-http://www.qbittorrent.org
+##Details:
 
-or our wiki here:
-http://wiki.qbittorrent.org
-
-Please report any bug (or feature request) to:
-http://bugs.qbittorrent.org
-
-You can also meet me (sledgehammer_999) on IRC:
-`#qbittorrent on irc.freenode.net`
-
-------------------------------------------
-sledgehammer999 <sledgehammer999@qbittorrent.org>
-
+TODO
