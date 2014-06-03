@@ -334,17 +334,22 @@ void HttpConnection::respond() {
   }
 
   if (list[0] == "playlist") {
-    qWarning() << "auto:" << list[1];
     QString url = "magnet:?" + QUrl::fromEncoded(m_parser.header().path().toAscii()).encodedQuery();
-    QString hash = m_parser.get("xt").mid(9);
-    qWarning() << "url:" << url;
-    qWarning() << "hash:" << hash;
+    QString hash = m_parser.get("xt").mid(9); // urn:btih:
 
+    qWarning() << "autoplay";
     QTorrentHandle h = QBtSession::instance()->getTorrentHandle(hash);
-    if (h.is_valid())
-        h.set_sequential_download(true);
-    if (!h.is_valid() || !h.has_metadata()) {
+    if (!h.is_valid()) {
+        qWarning() << "download";
         emit MagnetReadyToBeDownloaded(url);
+        h = QBtSession::instance()->getTorrentHandle(hash);
+    }
+    if (h.is_valid()) {
+        qWarning() << "setseq";
+        h.set_sequential_download(true);
+    }
+    if (!h.is_valid() || !h.has_metadata()) {
+        qWarning() << "timer:" << (h.is_valid() ? 1000 : 10);
         QTimer* timer = new QTimer(this);
         connect(timer, SIGNAL(timeout()), this, SLOT(respond()));
         timer->setInterval(h.is_valid() ? 1000 : 10);
@@ -352,6 +357,8 @@ void HttpConnection::respond() {
         timer->start();
         return;
     }
+
+    qWarning() << "playlist";
 
     QList<media_entry> media;
     unsigned int nbFiles = h.num_files();
@@ -369,7 +376,7 @@ void HttpConnection::respond() {
 
     if (media.size() == 0) {
         respondNotFound();
-    } else if (media.size() == 1) {
+    } else if (false && media.size() == 1) {
         m_generator.setStatusLine(302, "Found");
         m_generator.setContentEncoding(m_parser.acceptsEncoding());
         m_generator.setValue("Location", "/stream/tor." + media[0].extension + "?hash=" + hash + "&file=" + QString::number(media[0].index));
@@ -378,7 +385,7 @@ void HttpConnection::respond() {
     } else {
         //media.size() > 1
         QByteArray msg;
-        QString hostpfx = "http://192.168.0.13:8081";
+        QString host = m_parser.header().value("Host");
 
         /*
         QString NL = "\r\n";
@@ -392,6 +399,7 @@ void HttpConnection::respond() {
             plsdata += "Length" + QString::number(i + 1) + "=-1" + NL;
         }
         msg = plsdata.toUtf8();
+        m_generator.setContentType("audio/x-scpls");
         */
 
         QXmlStreamWriter stream(&msg);
@@ -413,7 +421,7 @@ void HttpConnection::respond() {
             stream.writeStartElement("entry");
             stream.writeTextElement("title", media[i].title);
             stream.writeStartElement("ref");
-            stream.writeAttribute("href", hostpfx + "/stream/tor." + media[i].extension + "?hash=" + hash + "&file=" + QString::number(media[i].index));
+            stream.writeAttribute("href", "http://" + host + "/stream/" + QUrl::toPercentEncoding(media[i].title) + "?hash=" + hash + "&file=" + QString::number(media[i].index));
             stream.writeEndElement(); // ref
             stream.writeEndElement(); // entry
         }
@@ -429,10 +437,9 @@ void HttpConnection::respond() {
         stream.writeEndDocument();
 
         m_generator.setStatusLine(200, "OK");
-        m_generator.setContentEncoding(m_parser.acceptsEncoding());
-        //m_generator.setContentType("audio/x-scpls");
         m_generator.setContentType("video/x-ms-asf");
         m_generator.setMessage(msg);
+        m_generator.setContentEncoding(m_parser.acceptsEncoding());
         write();
     }
     return;
