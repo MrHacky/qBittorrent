@@ -43,6 +43,7 @@ class QTcpSocket;
 QT_END_NAMESPACE
 
 class HttpTorrentConnection;
+class HttpLoadingConnection;
 
 class HttpConnection : public QObject
 {
@@ -94,6 +95,7 @@ private:
   QByteArray m_receivedData;
 
   friend HttpTorrentConnection;
+  friend HttpLoadingConnection;
 };
 
 class HttpTorrentConnection : public QObject
@@ -127,6 +129,30 @@ private:
   quint64 bytes_to_write;
   int nodrain;
   int blocking_piece;
+};
+
+class HttpLoadingConnection : public QObject
+{
+  Q_OBJECT
+  Q_DISABLE_COPY(HttpLoadingConnection)
+
+public:
+  HttpLoadingConnection(HttpConnection *m_connection);
+
+private slots:
+  void timer_tick();
+  void frame_tick();
+
+private:
+  void write_error(int code, QString message);
+
+private:
+  HttpConnection *m_connection;
+
+  QString m_hash;
+  QString m_boundary;
+  QByteArray m_framedata;
+  int m_maxticks = -1;
 };
 
 
