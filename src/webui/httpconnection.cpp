@@ -189,8 +189,7 @@ void HttpConnection::translateDocument(QString& data) {
 
 void HttpConnection::write_partial()
 {
-  m_generator.setContentEncoding(false);
-  m_socket->write(m_generator.toByteArray());
+  m_socket->write(m_generator.toString().toUtf8());
 }
 
 struct media_entry {
