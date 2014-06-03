@@ -50,6 +50,7 @@
 #include <QTemporaryFile>
 #include <queue>
 #include <vector>
+#include <utility>
 
 using namespace libtorrent;
 
@@ -188,6 +189,17 @@ void HttpConnection::write_partial()
   m_generator.setContentEncoding(false);
   m_socket->write(m_generator.toByteArray());
 }
+
+struct media_entry {
+    int index;
+    QString title;
+    QString extension;
+
+    bool operator<(const media_entry& o) const
+    {
+        return title.toLower() < o.title.toLower();
+    }
+};
 
 void HttpConnection::respond() {
   if ((m_socket->peerAddress() != QHostAddress::LocalHost
@@ -736,7 +748,7 @@ HttpTorrentConnection::HttpTorrentConnection(HttpConnection *parent)
     req_end = file.size;
     // validate 'range'
     if (range != "") {
-        QRegExp rxrange("^bytes ([0-9]*)-([0-9]*)$");
+        QRegExp rxrange("^bytes=([0-9]*)-([0-9]*)$");
         if (rxrange.indexIn(range) != -1) {
             if (rxrange.cap(1) != "")
                 req_start = rxrange.cap(1).toULongLong();
@@ -776,10 +788,25 @@ HttpTorrentConnection::HttpTorrentConnection(HttpConnection *parent)
 
 void HttpTorrentConnection::timer_tick()
 {
-  if (m_connection->m_socket->bytesToWrite() > 64*1024) {
-    release_priority();
-    return;
+  quint64 btw = m_connection->m_socket->bytesToWrite();
+  std::swap(bytes_to_write, btw);
+  if (bytes_to_write > 64*1024) {
+    if (bytes_to_write == btw) {
+        qWarning() << "stalled: [" << nodrain << "] " << bytes_to_write;
+        if (++nodrain > 10) // more than ten seconds without drainage
+            release_priority();
+        if (nodrain > 60) {
+            m_connection->m_socket->disconnectFromHost();
+            m_connection->m_socket->close();
+            m_connection->deleteLater();
+        }
+    } else
+        nodrain = 0;
   }
+
+  if (bytes_to_write > 10*1000*1000)
+      return;
+  quint64 max_len = 11*1000*1000 - bytes_to_write;
 
   qWarning() << "timer tick!";
   qWarning() << "req_start: " << req_start;
@@ -798,9 +825,10 @@ void HttpTorrentConnection::timer_tick()
   qWarning() << "piece_start: " << req_piece;
   qWarning() << "piece_missing: " << cp;
 
-  if (max_len_pieces > 0)
+  if (max_len_pieces != 0)
     max_len_pieces -= req_offset;
-  quint64 max_len = std::min(max_len_pieces, req_end - req_start);
+  max_len = std::min(max_len, max_len_pieces);
+  max_len = std::min(max_len, req_end - req_start);
 
   if (cp < num_pieces)
     acquire_priority(cp);
@@ -809,16 +837,13 @@ void HttpTorrentConnection::timer_tick()
 
   h.flush_cache();
 
-  if (max_len > 1000*1000*10)
-    max_len = 1000*1000*10;
-
   QByteArray data;
   QFile qf(file_path);
   if (qf.open(QIODevice::ReadOnly)) {
     qf.seek(req_start);
     data = qf.read(max_len);
   };
-  qWarning() << "max_len  : " << max_len;
+  //qWarning() << "max_len  : " << max_len;
   req_start += data.size();
   quint64 w = m_connection->m_socket->write(data);
   qWarning() << "data_write : " << w;
