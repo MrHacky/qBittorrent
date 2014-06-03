@@ -1020,7 +1020,7 @@ HttpLoadingConnection::HttpLoadingConnection(HttpConnection *parent)
     if (maxticks != "")
         m_maxticks = maxticks.toInt();
 
-    QHttpResponseHeader resp;
+    HttpResponseHeader resp;
     m_boundary = "boundarydonotcross";
 
     //m_connection->m_generator.setContentLength(req_end - req_start);
@@ -1095,8 +1095,8 @@ void HttpLoadingConnection::timer_tick()
         qint64 num_pieces = h.num_pieces();
 
         bool allzero = true;
-
-        QString output = QString::number(m_maxticks / 2) + "\t" + QTime::currentTime().toString() + "\t" + QString::number(qint64(h.download_payload_rate())) + "\r\n";
+        libtorrent::torrent_status status = h.status(torrent_handle::query_accurate_download_counters);
+        QString output = QString::number(m_maxticks / 2) + "\t" + QTime::currentTime().toString() + "\t" + misc::friendlyUnit(status.download_payload_rate, true) + "\r\n";
         unsigned int nbFiles = h.num_files();
         std::vector<libtorrent::size_type> progress;
         h.file_progress(progress);
