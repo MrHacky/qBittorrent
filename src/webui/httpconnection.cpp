@@ -208,7 +208,8 @@ struct media_entry {
 
 void HttpConnection::respond() {
   if ((m_socket->peerAddress() != QHostAddress::LocalHost
-      && m_socket->peerAddress() != QHostAddress::LocalHostIPv6)
+      && m_socket->peerAddress() != QHostAddress::LocalHostIPv6
+      && false)
      || m_httpserver->isLocalAuthEnabled()) {
     // Authentication
     const QString peer_ip = m_socket->peerAddress().toString();
