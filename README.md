@@ -38,7 +38,7 @@ the torrent.
 
 ####torrent as playlist
 
-Accessing /playlist/<MAGNETURL> ('/playlist/magnet:?....') will start
+Accessing /playlist/{MAGNETURL} ('/playlist/magnet:?....') will start
 downloading the torrent specified by the magnet url, if it is not in the
 list already. An .asx playlist will be return with an entry for each video
 file in the torrent, with corresponding /stream urls.
