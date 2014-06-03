@@ -47,6 +47,8 @@
 #include <QFile>
 #include <QDebug>
 #include <QRegExp>
+#include <QPainter>
+#include <QBuffer>
 #include <QTemporaryFile>
 #include <QXmlStreamWriter>
 #include <queue>
@@ -398,6 +400,13 @@ void HttpConnection::respond() {
 
         std::sort(media.begin(), media.end());
 
+        stream.writeStartElement("entry");
+        stream.writeTextElement("title", "Loading...");
+        stream.writeStartElement("ref");
+        stream.writeAttribute("href", "http://" + host + "/loading" + "?hash=" + hash + "&maxticks=60");
+        stream.writeEndElement(); // ref
+        stream.writeEndElement(); // entry
+
         for (int i = 0; i < media.size(); ++i) {
             stream.writeStartElement("entry");
             stream.writeTextElement("title", media[i].title);
@@ -406,6 +415,14 @@ void HttpConnection::respond() {
             stream.writeEndElement(); // ref
             stream.writeEndElement(); // entry
         }
+
+        stream.writeStartElement("entry");
+        stream.writeTextElement("title", "Done...");
+        stream.writeStartElement("ref");
+        stream.writeAttribute("href", "http://" + host + "/loading/done" + "?hash=" + hash + "&maxticks=20");
+        stream.writeEndElement(); // ref
+        stream.writeEndElement(); // entry
+
         stream.writeEndElement(); // asx
         stream.writeEndDocument();
 
@@ -421,6 +438,11 @@ void HttpConnection::respond() {
 
   if (list[0] == "stream") {
       new HttpTorrentConnection(this);
+      return;
+  }
+
+  if (list[0] == "loading") {
+      new HttpLoadingConnection(this);
       return;
   }
 
@@ -974,4 +996,170 @@ void HttpTorrentConnection::release_priority()
 HttpTorrentConnection::~HttpTorrentConnection()
 {
     release_priority();
+}
+
+HttpLoadingConnection::HttpLoadingConnection(HttpConnection *parent)
+  : QObject(parent), m_connection(parent)
+{
+    m_hash = m_connection->m_parser.get("hash");
+
+    // validate 'hash'
+    QTorrentHandle h = QBtSession::instance()->getTorrentHandle(m_hash);
+    if (!h.is_valid() || !h.has_metadata()) {
+        write_error(404, "Torrent or metadata not found.");
+        return;
+    }
+
+    QString maxticks = m_connection->m_parser.get("maxticks");
+    if (maxticks != "")
+        m_maxticks = maxticks.toInt();
+
+    QHttpResponseHeader resp;
+    m_boundary = "boundarydonotcross";
+
+    //m_connection->m_generator.setContentLength(req_end - req_start);
+    resp.setStatusLine(200, "OK");
+    resp.setValue("Connection", "close");
+    resp.setContentType("multipart/x-mixed-replace;boundary=" + m_boundary);
+    //m_connection->m_generator.setMessage(QByteArray());
+    m_connection->m_socket->write(resp.toString().toUtf8());
+
+    m_connection->m_socket->write(QString("--" + m_boundary + "\r\n").toUtf8());
+
+    timer_tick();
+    {
+        QTimer* timer = new QTimer(this);
+        connect(timer, SIGNAL(timeout()), this, SLOT(timer_tick()));
+        timer->setInterval(1000 / 2);
+        timer->start();
+    }
+    {
+        QTimer* timer = new QTimer(this);
+        connect(timer, SIGNAL(timeout()), this, SLOT(frame_tick()));
+        timer->setInterval(1000 / 25);
+        timer->start();
+    }
+}
+
+void HttpLoadingConnection::write_error(int code, QString message)
+{
+    m_connection->m_generator.setStatusLine(code, message);
+    m_connection->m_generator.setContentEncoding(m_connection->m_parser.acceptsEncoding());
+    m_connection->write();
+}
+
+void HttpLoadingConnection::timer_tick()
+{
+    qWarning() << "maxticks: " << m_maxticks;
+    if (m_maxticks == 0) {
+        QTcpSocket* sock = new QTcpSocket(this);
+        sock->connectToHost(m_connection->m_socket->peerAddress(), 9090);
+        qWarning() << "connect: " << sock->waitForConnected(1000);
+        QByteArray a = "{\"jsonrpc\": \"2.0\", \"method\": \"Player.GetActivePlayers\", \"params\": [], \"id\": 1})";
+        sock->write(a);
+        qWarning() << "write: " << sock->waitForBytesWritten(1000);
+        qWarning() << "read: " << sock->waitForReadyRead(1000);
+        QByteArray b = sock->readAll();
+        QString str = b;
+        QRegExp rx("\"playerid\"\\w*:\\w*([0-9]*)");
+        if (rx.indexIn(str, 0) != -1) {
+            QString playerid = rx.cap(1);
+            qWarning() << "playerid: " << playerid;
+            a = QString("{\"jsonrpc\": \"2.0\", \"method\": \"Player.GoTo\", \"params\": [" +playerid +",\"next\"], \"id\": 2})").toUtf8();
+            sock->write(a);
+            m_maxticks = -2;
+        }
+    } else if (m_maxticks > 0)
+        --m_maxticks;
+
+    QImage img(500, 250, QImage::Format_RGB32);
+    {
+        QTorrentHandle h = QBtSession::instance()->getTorrentHandle(m_hash);
+        #if LIBTORRENT_VERSION_NUM < 10000
+            torrent_info const* tf = &h.get_torrent_info();
+        #else
+            boost::intrusive_ptr<torrent_info const> tf = h.torrent_file();
+        #endif
+        const torrent_info& t = *tf;
+
+        qint64 piece_size = t.piece_length();
+        qint64 req_start = 0;
+        qint64 num_pieces = h.num_pieces();
+
+        bool allzero = true;
+
+        QString output = QString::number(m_maxticks / 2) + "\t" + QTime::currentTime().toString() + "\r\n";
+        unsigned int nbFiles = h.num_files();
+        std::vector<libtorrent::size_type> progress;
+        h.file_progress(progress);
+        for (unsigned int i=0; i<nbFiles; ++i) {
+            QString fileName = h.filename_at(i);
+            if (fileName.endsWith(".!qB"))
+                fileName.chop(4);
+            QString extension = fsutils::fileExtension(fileName);
+
+            if (misc::isPreviewable(extension) && fsutils::fileName(fileName) != "sample") {
+                const file_entry& file = t.file_at(i);
+                qint64 file_offset = file.offset;
+                qint64 file_size = file.size;
+
+                qint64 req_piece = floor((file_offset + req_start + 1) / (float) piece_size);
+                Q_ASSERT(req_piece >= 0 && req_piece < num_pieces);
+                qint64 req_offset =  ((req_piece+1) * piece_size) - (file_offset + req_start);
+                req_offset = piece_size - req_offset;
+                qint64 max_len_pieces = -req_offset;
+                qint64 cp = req_piece;
+                for (; cp < num_pieces && h.have_piece(cp) && max_len_pieces < file_size; ++cp)
+                  max_len_pieces += piece_size;
+                if (max_len_pieces <= 0)
+                    max_len_pieces = 0;
+                else
+                    allzero = false;
+                if (max_len_pieces > file_size)
+                    max_len_pieces = file_size;
+                QString s;
+                s.sprintf("%.1f%%\t", 100.0 * max_len_pieces / file_size);
+                output += s;
+                s.sprintf("%.1f%%\t", 100.0 * progress[i] / file_size);
+                output += s;
+                output += fsutils::fileName(fileName) + "\r\n";
+            }
+        }
+
+        if (m_maxticks == 0 && allzero)
+            ++m_maxticks;
+
+        QPainter pnt(&img);
+        QRect r1(QPoint(), img.size());
+        QRect r2(r1.left() + 5, r1.top() + 5, r1.width() - 10, r1.height() - 10);
+
+        pnt.fillRect(r1, QColor(0, 0, 0));
+
+        pnt.setPen(QColor(255, 255, 255));
+        pnt.setFont(QFont("", 10));
+        pnt.drawText(r2, Qt::TextExpandTabs, output);
+    }
+    QByteArray ba;
+    {
+        QBuffer buf(&ba);
+        buf.open(QIODevice::WriteOnly);
+        img.save(&buf, "JPEG", 90);
+    }
+    QByteArray hdr = QString(QString()
+        + "Content-Type: image/jpeg\r\n"
+        + "Content-Length: " + QString::number(ba.size()) + "\r\n"
+        + "\r\n"
+    ).toUtf8();
+
+    qWarning() << "jpeg size: " << ba.size();
+
+    m_framedata = QByteArray();
+    m_framedata += hdr;
+    m_framedata += ba;
+    m_framedata += QString("\r\n--" + m_boundary + "\r\n").toUtf8();
+}
+
+void HttpLoadingConnection::frame_tick()
+{
+    m_connection->m_socket->write(m_framedata);
 }
