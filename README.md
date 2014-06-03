@@ -27,3 +27,10 @@ compiled with ./libtorrent.patch applied to it. (based on RC_0_16 branch).
 The change allows is to combine sequential download with prioritizing of
 specific pieces, which will download sequentially starting at those pieces.
 
+####streaming with seeking
+
+Using this, the qBitTorrent webserver is extended with a streaming interface
+that allows seeking. Accessing /stream on the webserver will serve a file in
+a torrent. The 'hash' url parameter should be the infohash of the torrent
+you want, and the 'file' parameter should be the index of the file within
+the torrent.
