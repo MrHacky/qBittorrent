@@ -124,6 +124,8 @@ private:
   QString file_path;
   quint64 num_pieces;
   quint64 piece_size;
+  quint64 bytes_to_write;
+  int nodrain;
   int blocking_piece;
 };
 
