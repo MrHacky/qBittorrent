@@ -35,3 +35,10 @@ that allows seeking. Accessing /stream on the webserver will serve a file in
 a torrent. The 'hash' url parameter should be the infohash of the torrent
 you want, and the 'file' parameter should be the index of the file within
 the torrent.
+
+####torrent as playlist
+
+Accessing /playlist/<MAGNETURL> ('/playlist/magnet:?....') will start
+downloading the torrent specified by the magnet url, if it is not in the
+list already. An .asx playlist will be return with an entry for each video
+file in the torrent, with corresponding /stream urls.
