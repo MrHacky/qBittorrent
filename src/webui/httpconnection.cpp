@@ -413,7 +413,7 @@ void HttpConnection::respond() {
         stream.writeStartElement("entry");
         stream.writeTextElement("title", "Loading...");
         stream.writeStartElement("ref");
-        stream.writeAttribute("href", "http://" + host + "/loading" + "?hash=" + hash + "&maxticks=60");
+        stream.writeAttribute("href", "http://" + host + "/loading" + "?hash=" + hash + "&maxticks=1");
         stream.writeEndElement(); // ref
         stream.writeEndElement(); // entry
 
@@ -429,7 +429,7 @@ void HttpConnection::respond() {
         stream.writeStartElement("entry");
         stream.writeTextElement("title", "Done...");
         stream.writeStartElement("ref");
-        stream.writeAttribute("href", "http://" + host + "/loading/done" + "?hash=" + hash + "&maxticks=20");
+        stream.writeAttribute("href", "http://" + host + "/loading/done" + "?hash=" + hash);
         stream.writeEndElement(); // ref
         stream.writeEndElement(); // entry
 
@@ -1089,7 +1089,7 @@ void HttpLoadingConnection::timer_tick()
         qint64 req_start = 0;
         qint64 num_pieces = h.num_pieces();
 
-        bool allzero = true;
+        double maxpercent = 0;
         libtorrent::torrent_status status = h.status(torrent_handle::query_accurate_download_counters);
         QString output = QString::number(m_maxticks / 2) + "\t" + QTime::currentTime().toString() + "\t" + misc::friendlyUnit(status.download_payload_rate, true) + "\r\n";
         unsigned int nbFiles = h.num_files();
@@ -1121,7 +1121,9 @@ void HttpLoadingConnection::timer_tick()
                 if (max_len_pieces > file_size)
                     max_len_pieces = file_size;
                 QString s;
-                s.sprintf("%.1f%%\t", 100.0 * max_len_pieces / file_size);
+		double pct = 100.0 * max_len_pieces;
+		maxpercent = std::max(maxpercent, pct);
+                s.sprintf("%.1f%%\t", maxpercent / file_size);
                 output += s;
                 s.sprintf("%.1f%%\t", 100.0 * progress[i] / file_size);
                 output += s;
@@ -1129,7 +1131,7 @@ void HttpLoadingConnection::timer_tick()
             }
         }
 
-        if (m_maxticks == 0 && allzero)
+        if (m_maxticks == 0 && pct < 2.5)
             ++m_maxticks;
 
         QPainter pnt(&img);
