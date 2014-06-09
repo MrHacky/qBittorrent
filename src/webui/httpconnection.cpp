@@ -1121,14 +1121,12 @@ void HttpLoadingConnection::timer_tick()
                   max_len_pieces += piece_size;
                 if (max_len_pieces <= 0)
                     max_len_pieces = 0;
-                else
-                    allzero = false;
                 if (max_len_pieces > file_size)
                     max_len_pieces = file_size;
                 QString s;
-		double pct = 100.0 * max_len_pieces;
-		maxpercent = std::max(maxpercent, pct);
-                s.sprintf("%.1f%%\t", maxpercent / file_size);
+                double pct = 100.0 * max_len_pieces / file_size;
+                maxpercent = std::max(maxpercent, pct);
+                s.sprintf("%.1f%%\t", pct);
                 output += s;
                 s.sprintf("%.1f%%\t", 100.0 * progress[i] / file_size);
                 output += s;
@@ -1136,7 +1134,7 @@ void HttpLoadingConnection::timer_tick()
             }
         }
 
-        if (m_maxticks == 0 && pct < 2.5)
+        if (m_maxticks == 0 && maxpercent < 2.5)
             ++m_maxticks;
 
         QPainter pnt(&img);
