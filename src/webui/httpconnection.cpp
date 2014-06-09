@@ -828,6 +828,20 @@ void HttpConnection::increaseTorrentsPriority(const QStringList &hashes)
   }
 }
 
+QByteArray HttpConnection::doXbmcJsonRequest(QByteArray req, bool wait_for_response)
+{
+    QTcpSocket* sock = new QTcpSocket(this);
+    sock->connectToHost(m_socket->peerAddress(), 9090);
+    qWarning() << "xbmc connect: " << sock->waitForConnected(1000);
+    sock->write(req);
+    if (!wait_for_response)
+        return QByteArray();
+    qWarning() << "xbmc write: " << sock->waitForBytesWritten(1000);
+    qWarning() << "xbmc read: " << sock->waitForReadyRead(1000);
+    sock->close();
+    return sock->readAll();
+}
+
 HttpTorrentConnection::HttpTorrentConnection(HttpConnection *parent)
   : QObject(parent), m_connection(parent), blocking_piece(-1)
 {
@@ -1058,21 +1072,12 @@ void HttpLoadingConnection::timer_tick()
 {
     qWarning() << "maxticks: " << m_maxticks;
     if (m_maxticks == 0) {
-        QTcpSocket* sock = new QTcpSocket(this);
-        sock->connectToHost(m_connection->m_socket->peerAddress(), 9090);
-        qWarning() << "connect: " << sock->waitForConnected(1000);
-        QByteArray a = "{\"jsonrpc\": \"2.0\", \"method\": \"Player.GetActivePlayers\", \"params\": [], \"id\": 1})";
-        sock->write(a);
-        qWarning() << "write: " << sock->waitForBytesWritten(1000);
-        qWarning() << "read: " << sock->waitForReadyRead(1000);
-        QByteArray b = sock->readAll();
-        QString str = b;
+        QString str = m_connection->doXbmcJsonRequest("{\"jsonrpc\": \"2.0\", \"method\": \"Player.GetActivePlayers\", \"params\": [], \"id\": 1})", true);
         QRegExp rx("\"playerid\"\\w*:\\w*([0-9]*)");
         if (rx.indexIn(str, 0) != -1) {
             QString playerid = rx.cap(1);
             qWarning() << "playerid: " << playerid;
-            a = QString("{\"jsonrpc\": \"2.0\", \"method\": \"Player.GoTo\", \"params\": [" +playerid +",\"next\"], \"id\": 2})").toUtf8();
-            sock->write(a);
+            m_connection->doXbmcJsonRequest(QString("{\"jsonrpc\": \"2.0\", \"method\": \"Player.GoTo\", \"params\": [" +playerid +",\"next\"], \"id\": 2})").toUtf8(), false);
             m_maxticks = -2;
         }
     } else if (m_maxticks > 0)
