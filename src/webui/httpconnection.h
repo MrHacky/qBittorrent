@@ -72,6 +72,8 @@ protected slots:
   void decreaseTorrentsPriority(const QStringList& hashes);
   void increaseTorrentsPriority(const QStringList& hashes);
 
+  QByteArray doXbmcJsonRequest(QByteArray req, bool wait_for_response);
+
 private slots:
   void read();
 
