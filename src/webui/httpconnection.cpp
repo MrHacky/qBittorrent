@@ -1072,8 +1072,6 @@ HttpLoadingConnection::HttpLoadingConnection(HttpConnection *parent)
     //m_connection->m_generator.setMessage(QByteArray());
     m_connection->m_socket->write(resp.toString().toUtf8());
 
-    m_connection->m_socket->write(QString("--" + m_boundary + "\r\n").toUtf8());
-
     timer_tick();
     {
         QTimer* timer = new QTimer(this);
@@ -1100,6 +1098,19 @@ void HttpLoadingConnection::timer_tick()
 {
     qWarning() << "maxticks: " << m_maxticks;
     if (m_maxticks == 0) {
+        m_connection->m_socket->write(QString("--" + m_boundary + "--").toUtf8());
+        m_connection->m_socket->disconnectFromHost();
+        if (m_connection->m_socket->state() == QAbstractSocket::UnconnectedState || m_connection->m_socket->waitForDisconnected(5000))
+            qDebug() << "Disconnected";
+        else
+            qDebug() << "Disconnect Failed!";
+        return;
+        //waitForBytesWritten(1000);
+        m_connection->m_socket->close();
+        m_connection->m_socket->waitForDisconnected(1000);
+        m_maxticks = -2;
+        m_framedata = QByteArray();
+        return;
         QString str = m_connection->doXbmcJsonRequest("{\"jsonrpc\": \"2.0\", \"method\": \"Player.GetActivePlayers\", \"params\": [], \"id\": 1})", true);
         QRegExp rx("\"playerid\"\\w*:\\w*([0-9]*)");
         if (rx.indexIn(str, 0) != -1) {
@@ -1107,9 +1118,12 @@ void HttpLoadingConnection::timer_tick()
             qWarning() << "playerid: " << playerid;
             m_connection->doXbmcJsonRequest(QString("{\"jsonrpc\": \"2.0\", \"method\": \"Player.GoTo\", \"params\": [" +playerid +",\"next\"], \"id\": 2})").toUtf8(), false);
             m_maxticks = -2;
-        }
+        } else
+            qWarning() << "response: " << str;
     } else if (m_maxticks > 0)
         --m_maxticks;
+    else
+        return;
 
     int resdiv = 2;
     //QImage img(500, 250, QImage::Format_RGB32);
@@ -1195,9 +1209,10 @@ void HttpLoadingConnection::timer_tick()
     qWarning() << "jpeg size: " << ba.size();
 
     m_framedata = QByteArray();
+    m_framedata += QString("--" + m_boundary + "\r\n").toUtf8();
     m_framedata += hdr;
     m_framedata += ba;
-    m_framedata += QString("\r\n--" + m_boundary + "\r\n").toUtf8();
+    m_framedata += "\r\n";
 }
 
 void HttpLoadingConnection::frame_tick()
