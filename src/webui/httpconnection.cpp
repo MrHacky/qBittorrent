@@ -333,11 +333,10 @@ void HttpConnection::respond() {
     }
   }
 
-  if (list[0] == "playlist") {
+  if (list[0] == "start") {
     QString url = "magnet:?" + QUrl::fromEncoded(m_parser.header().path().toAscii()).encodedQuery();
     QString hash = m_parser.get("xt").mid(9); // urn:btih:
 
-    qWarning() << "autoplay";
     QTorrentHandle h = QBtSession::instance()->getTorrentHandle(hash);
     if (!h.is_valid()) {
         qWarning() << "download";
@@ -358,6 +357,39 @@ void HttpConnection::respond() {
         return;
     }
 
+    QString type = (list.size() > 1 ? list[1] : "");
+    // "redir.playlist": redirect to playlist
+    // "open.playlist": tell xbmc to open playlist
+    if (type == "open.playlist") {
+        static QDateTime lastopen = QDateTime(QDate(0, 0, 0), QTime(0, 0));
+        QDateTime now = QDateTime::currentDateTime();
+        if (lastopen.secsTo(now) > 15) {
+            lastopen = now;
+            QString host = m_parser.header().value("Host");
+            QString url  = "http://" + host + "/playlist" + "?hash=" + hash;
+            doXbmcJsonRequest(QString("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"Player.Open\",\"params\":{\"item\":{\"file\":\"" + url + "\"}}}").toUtf8(), false);
+        }
+        m_generator.setStatusLine(302, "Found");
+        m_generator.setContentEncoding(m_parser.acceptsEncoding());
+        m_generator.setValue("Location", "/loading/?hash=" + hash);
+        m_generator.setMessage(QByteArray());
+        write();
+
+    } else {
+      qWarning() << "unhandled type: " << type;
+      respondNotFound();
+    }
+    return;
+
+  }
+
+  if (list[0] == "playlist") {
+    QString hash = m_parser.get("hash");
+    QTorrentHandle h = QBtSession::instance()->getTorrentHandle(hash);
+    if (!h.is_valid() || !h.has_metadata()) {
+      respondNotFound();
+      return;
+    }
     qWarning() << "playlist";
 
     QList<media_entry> media;
@@ -413,7 +445,7 @@ void HttpConnection::respond() {
         stream.writeStartElement("entry");
         stream.writeTextElement("title", "Loading...");
         stream.writeStartElement("ref");
-        stream.writeAttribute("href", "http://" + host + "/loading" + "?hash=" + hash + "&maxticks=1");
+        stream.writeAttribute("href", "http://" + host + "/loading" + "?hash=" + hash + "&maxticks=10");
         stream.writeEndElement(); // ref
         stream.writeEndElement(); // entry
 
@@ -833,8 +865,9 @@ QByteArray HttpConnection::doXbmcJsonRequest(QByteArray req, bool wait_for_respo
         return QByteArray();
     qWarning() << "xbmc write: " << sock->waitForBytesWritten(1000);
     qWarning() << "xbmc read: " << sock->waitForReadyRead(1000);
+    QByteArray resp = sock->readAll();
     sock->close();
-    return sock->readAll();
+    return resp;
 }
 
 HttpTorrentConnection::HttpTorrentConnection(HttpConnection *parent)
