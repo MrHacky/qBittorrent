@@ -371,7 +371,14 @@ void HttpConnection::respond() {
         m_generator.setValue("Location", "/loading/?hash=" + hash);
         m_generator.setMessage(QByteArray());
         write();
-
+    } else if (type == "redir.playlist") {
+        QString host = m_parser.header().value("Host");
+        QString url  = "http://" + host + "/playlist" + "?hash=" + hash;
+        m_generator.setStatusLine(302, "Found");
+        m_generator.setContentEncoding(m_parser.acceptsEncoding());
+        m_generator.setValue("Location", url);
+        m_generator.setMessage(QByteArray());
+        write();
     } else {
       qWarning() << "unhandled type: " << type;
       respondNotFound();
