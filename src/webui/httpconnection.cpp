@@ -449,7 +449,7 @@ void HttpConnection::respond() {
         stream.writeStartElement("entry");
         stream.writeTextElement("title", "Loading...");
         stream.writeStartElement("ref");
-        stream.writeAttribute("href", "http://" + host + "/loading" + "?hash=" + hash + "&maxticks=10");
+        stream.writeAttribute("href", "http://" + host + "/loading" + "?hash=" + hash + "&maxticks=30");
         stream.writeEndElement(); // ref
         stream.writeEndElement(); // entry
 
@@ -1133,7 +1133,7 @@ void HttpLoadingConnection::timer_tick()
             qWarning() << "response: " << str;
     } else if (m_maxticks > 0)
         --m_maxticks;
-    else
+    else if (m_maxticks < -1)
         return;
 
     int resdiv = 4;
@@ -1192,8 +1192,9 @@ void HttpLoadingConnection::timer_tick()
             }
         }
 
-        if (m_maxticks == 0 && maxpercent < 2.5)
-            ++m_maxticks;
+        // wait until we have at least 2.5 percent of a file before we count down the last 5 seconds
+        //if (m_maxticks >= 0 && m_maxticks < 10 && maxpercent < 2.5)
+        //    ++m_maxticks;
 
         QPainter pnt(&img);
         QRect r1(QPoint(), img.size());
