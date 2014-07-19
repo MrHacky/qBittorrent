@@ -1098,18 +1098,17 @@ void HttpLoadingConnection::timer_tick()
 {
     qWarning() << "maxticks: " << m_maxticks;
     if (m_maxticks == 0) {
+        m_framedata = QByteArray();
         m_connection->m_socket->write(QString("--" + m_boundary + "--").toUtf8());
+        /*
         m_connection->m_socket->disconnectFromHost();
         if (m_connection->m_socket->state() == QAbstractSocket::UnconnectedState || m_connection->m_socket->waitForDisconnected(5000))
-            qDebug() << "Disconnected";
+            qWarning() << "Disconnected";
         else
-            qDebug() << "Disconnect Failed!";
+            qWarning() << "Disconnect Failed!";
         return;
-        //waitForBytesWritten(1000);
-        m_connection->m_socket->close();
-        m_connection->m_socket->waitForDisconnected(1000);
+        */
         m_maxticks = -2;
-        m_framedata = QByteArray();
         return;
         QString str = m_connection->doXbmcJsonRequest("{\"jsonrpc\": \"2.0\", \"method\": \"Player.GetActivePlayers\", \"params\": [], \"id\": 1})", true);
         QRegExp rx("\"playerid\"\\w*:\\w*([0-9]*)");
@@ -1217,5 +1216,15 @@ void HttpLoadingConnection::timer_tick()
 
 void HttpLoadingConnection::frame_tick()
 {
-    m_connection->m_socket->write(m_framedata);
+    if (m_framedata.size() > 0) {
+        m_connection->m_socket->write(m_framedata);
+    } else {
+        qint64 btw = m_connection->m_socket->bytesToWrite();
+        qWarning() << "btw: " << btw;
+        m_connection->m_socket->waitForBytesWritten(500);
+        if (btw == 0) {
+            m_connection->m_socket->waitForDisconnected(1000);
+            m_connection->m_socket->close();
+        }
+    }
 }
