@@ -1,3 +1,43 @@
+Index: src/peer_connection.cpp
+===================================================================
+--- src/peer_connection.cpp	(revision 9982)
++++ src/peer_connection.cpp	(working copy)
+@@ -4298,7 +4298,35 @@
+ 			disconnect(errors::timed_out_inactivity);
+ 			return;
+ 		}
++		
++		// TTTTTimeout
++		int importantpiece = -1;
++		for (std::vector<pending_block>::const_iterator i = m_request_queue.begin()
++			, end(m_request_queue.end()); importantpiece == -1 && i != end; ++i)
++		{
++			int pi = i->block.piece_index;
++			if (t->have_piece(pi) || t->picker().piece_priority(pi) != 7) continue;
++			importantpiece = pi;
++		}
+ 
++		for (std::vector<pending_block>::const_iterator i = m_download_queue.begin()
++			, end(m_download_queue.end()); importantpiece == -1 && i != end; ++i)
++		{
++			int pi = i->block.piece_index;
++			if (t->have_piece(pi) || t->picker().piece_priority(pi) != 7) continue;
++			importantpiece = pi;
++		}		
++
++		if (importantpiece >= 0 && may_timeout && (now - m_last_request) > seconds(5) && !m_connecting)
++		{
++#if defined TORRENT_VERBOSE_LOGGING || defined TORRENT_ERROR_LOGGING
++			peer_log("*** LAST ACTIVITY [ %d seconds ago ] ***", int(total_seconds(d)));
++#endif
++			std::cerr << "Disconnected peer after waiting 5 seconds for important piece: " << importantpiece << "\n";
++			disconnect(errors::timed_out_inactivity);
++			return;
++		}
++
+ 		// do not stall waiting for a handshake
+ 		if (may_timeout
+ 			&& !m_connecting
 Index: src/piece_picker.cpp
 ===================================================================
 --- src/piece_picker.cpp	(revision 9982)
