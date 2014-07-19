@@ -1004,8 +1004,8 @@ void HttpTorrentConnection::timer_tick()
   max_len = std::min(max_len, max_len_pieces);
   max_len = std::min(max_len, req_end - req_start);
 
-  if (cp < num_pieces)
-    acquire_priority(cp);
+  if (req_piece < num_pieces)
+    acquire_priority(req_piece);
   if (max_len == 0)
     return;
 
