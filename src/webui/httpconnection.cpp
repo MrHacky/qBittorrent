@@ -333,9 +333,32 @@ void HttpConnection::respond() {
     }
   }
 
+  [&](){};
+
   if (list[0] == "start") {
-    QString url = "magnet:?" + QUrl::fromEncoded(m_parser.header().path().toAscii()).encodedQuery();
+    QString murl = "magnet:?" + QUrl::fromEncoded(m_parser.header().path().toAscii().replace("%3A", ":")).encodedQuery();
     QString hash = m_parser.get("xt").mid(9); // urn:btih:
+
+    qWarning() << "download";
+    emit MagnetReadyToBeDownloaded(murl);
+    QTorrentHandle h = QBtSession::instance()->getTorrentHandle(hash);
+    h.set_sequential_download(true);
+
+    QString host = m_parser.header().value("Host");
+    QString url  = "http://" + host + "/playlist" + "?starting=1&hash=" + hash;
+    m_generator.setStatusLine(302, "Found");
+    m_generator.setContentEncoding(m_parser.acceptsEncoding());
+    m_generator.setValue("Location", url);
+    m_generator.setMessage(QByteArray());
+    write();
+  }
+
+#if 0
+  if (false) {
+
+    // redirect to starting playlist
+    // "redir.playlist": redirect to playlist
+    // "open.playlist": tell xbmc to open playlist
 
     QTorrentHandle h = QBtSession::instance()->getTorrentHandle(hash);
     if (!h.is_valid()) {
@@ -357,9 +380,6 @@ void HttpConnection::respond() {
         return;
     }
 
-    QString type = (list.size() > 1 ? list[1] : "");
-    // "redir.playlist": redirect to playlist
-    // "open.playlist": tell xbmc to open playlist
     if (type == "open.playlist") {
         static QDateTime lastopen = QDateTime(QDate(0, 0, 0), QTime(0, 0));
         QDateTime now = QDateTime::currentDateTime();
@@ -389,98 +409,95 @@ void HttpConnection::respond() {
     return;
 
   }
+#endif
 
   if (list[0] == "playlist") {
     QString hash = m_parser.get("hash");
-    QTorrentHandle h = QBtSession::instance()->getTorrentHandle(hash);
-    if (!h.is_valid() || !h.has_metadata()) {
-      respondNotFound();
-      return;
-    }
-    qWarning() << "playlist";
+    QString host = m_parser.header().value("Host");
+    bool starting = m_parser.get("starting") == "1";
 
-    QList<media_entry> media;
-    unsigned int nbFiles = h.num_files();
-    for (unsigned int i=0; i<nbFiles; ++i) {
-      QString fileName = h.filename_at(i);
-      qWarning() << "File:" << fileName;
-      if (fileName.endsWith(".!qB"))
-        fileName.chop(4);
-      QString extension = fsutils::fileExtension(fileName).toUpper();
+    QByteArray msg;
+    QXmlStreamWriter stream(&msg);
+    stream.setAutoFormatting(true);
+    stream.writeStartDocument();
+    stream.writeStartElement("asx");
+    stream.writeAttribute("version", "3.0");
 
-      if (misc::isPreviewable(extension) && fsutils::fileName(fileName) != "sample") {
-          media << media_entry { i, fsutils::fileName(fileName), extension.toLower() };
-      }
-    }
-
-    if (media.size() == 0) {
-        respondNotFound();
-    } else if (false && media.size() == 1) {
-        m_generator.setStatusLine(302, "Found");
-        m_generator.setContentEncoding(m_parser.acceptsEncoding());
-        m_generator.setValue("Location", "/stream/tor." + media[0].extension + "?hash=" + hash + "&file=" + QString::number(media[0].index));
-        m_generator.setMessage(QByteArray());
-        write();
-    } else {
-        //media.size() > 1
-        QByteArray msg;
-        QString host = m_parser.header().value("Host");
-
-        /*
-        QString NL = "\r\n";
-        QString plsdata;
-        plsdata += "[playlist]" + NL;
-        plsdata += "Version=2" + NL;
-        plsdata += "NumberOfEntries=" + QString::number(media.size()) + NL;
-        for (int i = 0; i < media.size(); ++i) {
-            plsdata += "File" + QString::number(i + 1) + "=" + hostpfx + "/stream/tor." + media[i].extension + "?hash=" + hash + "&file=" + QString::number(media[i].index) + NL;
-            plsdata += "Title" + QString::number(i + 1) + "=" + media[i].title + NL;
-            plsdata += "Length" + QString::number(i + 1) + "=-1" + NL;
-        }
-        msg = plsdata.toUtf8();
-        m_generator.setContentType("audio/x-scpls");
-        */
-
-        QXmlStreamWriter stream(&msg);
-        stream.setAutoFormatting(true);
-        stream.writeStartDocument();
-        stream.writeStartElement("asx");
-        stream.writeAttribute("version", "3.0");
-
-        std::sort(media.begin(), media.end());
-
+    if (starting) {
         stream.writeStartElement("entry");
         stream.writeTextElement("title", "Loading...");
         stream.writeStartElement("ref");
-        stream.writeAttribute("href", "http://" + host + "/loading" + "?hash=" + hash + "&maxticks=30");
+        stream.writeAttribute("href", "http://" + host + "/loading" + "?hash=" + hash + "&starting=1&maxticks=30");
         stream.writeEndElement(); // ref
         stream.writeEndElement(); // entry
 
-        for (int i = 0; i < media.size(); ++i) {
+        stream.writeStartElement("entry");
+        stream.writeTextElement("title", "Playlist");
+        stream.writeStartElement("ref");
+        stream.writeAttribute("href", "http://" + host + "/playlist" + "?hash=" + hash);
+        stream.writeEndElement(); // ref
+        stream.writeEndElement(); // entry
+    } else {
+        QTorrentHandle h = QBtSession::instance()->getTorrentHandle(hash);
+        if (!h.is_valid() || !h.has_metadata()) {
+          respondNotFound();
+          return;
+        }
+        qWarning() << "playlist";
+
+        QList<media_entry> media;
+        unsigned int nbFiles = h.num_files();
+        for (unsigned int i=0; i<nbFiles; ++i) {
+          QString fileName = h.filename_at(i);
+          qWarning() << "File:" << fileName;
+          if (fileName.endsWith(".!qB"))
+            fileName.chop(4);
+          QString extension = fsutils::fileExtension(fileName).toUpper();
+
+          if (misc::isPreviewable(extension) && fsutils::fileName(fileName) != "sample") {
+              media << media_entry { i, fsutils::fileName(fileName), extension.toLower() };
+          }
+        }
+
+        if (media.size() == 0) {
+            respondNotFound();
+        } else if (false && media.size() == 1) {
+            m_generator.setStatusLine(302, "Found");
+            m_generator.setContentEncoding(m_parser.acceptsEncoding());
+            m_generator.setValue("Location", "/stream/tor." + media[0].extension + "?hash=" + hash + "&file=" + QString::number(media[0].index));
+            m_generator.setMessage(QByteArray());
+            write();
+        } else {
+            std::sort(media.begin(), media.end());
+
+            for (int i = 0; i < media.size(); ++i) {
+                stream.writeStartElement("entry");
+                stream.writeTextElement("title", media[i].title);
+                stream.writeStartElement("ref");
+                stream.writeAttribute("href", "http://" + host + "/stream/" + QUrl::toPercentEncoding(media[i].title) + "?hash=" + hash + "&file=" + QString::number(media[i].index));
+                stream.writeEndElement(); // ref
+                stream.writeEndElement(); // entry
+            }
+
             stream.writeStartElement("entry");
-            stream.writeTextElement("title", media[i].title);
+            stream.writeTextElement("title", "Done...");
             stream.writeStartElement("ref");
-            stream.writeAttribute("href", "http://" + host + "/stream/" + QUrl::toPercentEncoding(media[i].title) + "?hash=" + hash + "&file=" + QString::number(media[i].index));
+            stream.writeAttribute("href", "http://" + host + "/loading/done" + "?hash=" + hash);
             stream.writeEndElement(); // ref
             stream.writeEndElement(); // entry
         }
-
-        stream.writeStartElement("entry");
-        stream.writeTextElement("title", "Done...");
-        stream.writeStartElement("ref");
-        stream.writeAttribute("href", "http://" + host + "/loading/done" + "?hash=" + hash);
-        stream.writeEndElement(); // ref
-        stream.writeEndElement(); // entry
-
-        stream.writeEndElement(); // asx
-        stream.writeEndDocument();
-
-        m_generator.setStatusLine(200, "OK");
-        m_generator.setContentType("video/x-ms-asf");
-        m_generator.setMessage(msg);
-        m_generator.setContentEncoding(m_parser.acceptsEncoding());
-        write();
     }
+
+    stream.writeEndElement(); // asx
+    stream.writeEndDocument();
+
+    m_generator.setStatusLine(200, "OK");
+    if (m_parser.get("noct") != "1" || m_parser.header().value("User-Agent").toStdString().find("Chrome") == std::string::npos)
+        m_generator.setContentType("video/x-ms-asf");
+    m_generator.setMessage(msg);
+    m_generator.setContentEncoding(m_parser.acceptsEncoding());
+    write();
+
     return;
   }
 
@@ -1058,13 +1075,6 @@ HttpLoadingConnection::HttpLoadingConnection(HttpConnection *parent)
 {
     m_hash = m_connection->m_parser.get("hash");
 
-    // validate 'hash'
-    QTorrentHandle h = QBtSession::instance()->getTorrentHandle(m_hash);
-    if (!h.is_valid() || !h.has_metadata()) {
-        write_error(404, "Torrent or metadata not found.");
-        return;
-    }
-
     QString maxticks = m_connection->m_parser.get("maxticks");
     if (maxticks != "")
         m_maxticks = maxticks.toInt();
@@ -1136,60 +1146,69 @@ void HttpLoadingConnection::timer_tick()
     QImage img(1920 / resdiv, 1080 / resdiv, QImage::Format_RGB32);
     {
         QTorrentHandle h = QBtSession::instance()->getTorrentHandle(m_hash);
-        #if LIBTORRENT_VERSION_NUM < 10000
-            torrent_info const* tf = &h.get_torrent_info();
-        #else
-            boost::intrusive_ptr<torrent_info const> tf = h.torrent_file();
-        #endif
-        const torrent_info& t = *tf;
+        QString output = QString::number(m_maxticks / 2) + "\t" + QTime::currentTime().toString();
+        if (h.is_valid() && h.has_metadata()) {
+            #if LIBTORRENT_VERSION_NUM < 10000
+                torrent_info const* tf = &h.get_torrent_info();
+            #else
+                boost::intrusive_ptr<torrent_info const> tf = h.torrent_file();
+            #endif
+            const torrent_info& t = *tf;
 
-        qint64 piece_size = t.piece_length();
-        qint64 req_start = 0;
-        qint64 num_pieces = h.num_pieces();
+            qint64 piece_size = t.piece_length();
+            qint64 req_start = 0;
+            qint64 num_pieces = h.num_pieces();
 
-        double maxpercent = 0;
-        libtorrent::torrent_status status = h.status(torrent_handle::query_accurate_download_counters);
-        QString output = QString::number(m_maxticks / 2) + "\t" + QTime::currentTime().toString() + "\t" + misc::friendlyUnit(status.download_payload_rate, true) + "\r\n";
-        unsigned int nbFiles = h.num_files();
-        std::vector<libtorrent::size_type> progress;
-        h.file_progress(progress);
-        for (unsigned int i=0; i<nbFiles; ++i) {
-            QString fileName = h.filename_at(i);
-            if (fileName.endsWith(".!qB"))
-                fileName.chop(4);
-            QString extension = fsutils::fileExtension(fileName);
+            double maxpercent = 0;
+            libtorrent::torrent_status status = h.status(torrent_handle::query_accurate_download_counters);
+            output += "\t" + misc::friendlyUnit(status.download_payload_rate, true) + "\r\n";
+            unsigned int nbFiles = h.num_files();
+            std::vector<libtorrent::size_type> progress;
+            h.file_progress(progress);
+            for (unsigned int i=0; i<nbFiles; ++i) {
+                QString fileName = h.filename_at(i);
+                if (fileName.endsWith(".!qB"))
+                    fileName.chop(4);
+                QString extension = fsutils::fileExtension(fileName);
 
-            if (misc::isPreviewable(extension) && fsutils::fileName(fileName) != "sample") {
-                const file_entry& file = t.file_at(i);
-                qint64 file_offset = file.offset;
-                qint64 file_size = file.size;
+                if (misc::isPreviewable(extension) && fsutils::fileName(fileName) != "sample") {
+                    const file_entry& file = t.file_at(i);
+                    qint64 file_offset = file.offset;
+                    qint64 file_size = file.size;
 
-                qint64 req_piece = floor((file_offset + req_start + 1) / (float) piece_size);
-                Q_ASSERT(req_piece >= 0 && req_piece < num_pieces);
-                qint64 req_offset =  ((req_piece+1) * piece_size) - (file_offset + req_start);
-                req_offset = piece_size - req_offset;
-                qint64 max_len_pieces = -req_offset;
-                qint64 cp = req_piece;
-                for (; cp < num_pieces && h.have_piece(cp) && max_len_pieces < file_size; ++cp)
-                  max_len_pieces += piece_size;
-                if (max_len_pieces <= 0)
-                    max_len_pieces = 0;
-                if (max_len_pieces > file_size)
-                    max_len_pieces = file_size;
-                QString s;
-                double pct = 100.0 * max_len_pieces / file_size;
-                maxpercent = std::max(maxpercent, pct);
-                s.sprintf("%.1f%%\t", pct);
-                output += s;
-                s.sprintf("%.1f%%\t", 100.0 * progress[i] / file_size);
-                output += s;
-                output += fsutils::fileName(fileName) + "\r\n";
+                    qint64 req_piece = floor((file_offset + req_start + 1) / (float) piece_size);
+                    Q_ASSERT(req_piece >= 0 && req_piece < num_pieces);
+                    qint64 req_offset =  ((req_piece+1) * piece_size) - (file_offset + req_start);
+                    req_offset = piece_size - req_offset;
+                    qint64 max_len_pieces = -req_offset;
+                    qint64 cp = req_piece;
+                    for (; cp < num_pieces && h.have_piece(cp) && max_len_pieces < file_size; ++cp)
+                      max_len_pieces += piece_size;
+                    if (max_len_pieces <= 0)
+                        max_len_pieces = 0;
+                    if (max_len_pieces > file_size)
+                        max_len_pieces = file_size;
+                    QString s;
+                    double pct = 100.0 * max_len_pieces / file_size;
+                    maxpercent = std::max(maxpercent, pct);
+                    s.sprintf("%.1f%%\t", pct);
+                    output += s;
+                    s.sprintf("%.1f%%\t", 100.0 * progress[i] / file_size);
+                    output += s;
+                    output += fsutils::fileName(fileName) + "\r\n";
+                }
             }
-        }
 
-        // wait until we have at least 2.5 percent of a file before we count down the last 5 seconds
-        //if (m_maxticks >= 0 && m_maxticks < 10 && maxpercent < 2.5)
-        //    ++m_maxticks;
+            // wait until we have at least 2.5 percent of a file before we count down the last 5 seconds
+            //if (m_maxticks >= 0 && m_maxticks < 10 && maxpercent < 2.5)
+            //    ++m_maxticks;
+        } else {
+            //if (m_maxticks >= 0 && m_maxticks < 10 && maxpercent < 2.5)
+            //    ++m_maxticks;
+            output += "\r\nWaiting for metadata...\r\n";
+            if (m_maxticks >= 0)
+                ++m_maxticks;
+        }
 
         QPainter pnt(&img);
         QRect r1(QPoint(), img.size());
