@@ -333,8 +333,8 @@ void HttpConnection::respond() {
   [&](){};
 
   if (list[0] == "start") {
-    QString murl = "magnet:?" + QUrl::fromEncoded(m_parser.header().path().toAscii().replace("%3A", ":")).encodedQuery();
-    QString hash = m_parser.get("xt").mid(9); // urn:btih:
+    QString murl = "magnet:?" + QUrl::fromEncoded(m_parser.header().path().replace("%3A", ":").toLatin1()).query();
+    QString hash = m_parser.get("xt").replace("%3A", ":").mid(9); // urn:btih:
 
     qWarning() << "download: " << murl;
     qWarning() << "hash: " << hash;
