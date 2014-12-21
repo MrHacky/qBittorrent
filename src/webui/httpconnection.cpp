@@ -336,7 +336,8 @@ void HttpConnection::respond() {
     QString murl = "magnet:?" + QUrl::fromEncoded(m_parser.header().path().toAscii().replace("%3A", ":")).encodedQuery();
     QString hash = m_parser.get("xt").mid(9); // urn:btih:
 
-    qWarning() << "download";
+    qWarning() << "download: " << murl;
+    qWarning() << "hash: " << hash;
     emit MagnetReadyToBeDownloaded(murl);
     QTorrentHandle h = QBtSession::instance()->getTorrentHandle(hash);
     h.set_sequential_download(true);
@@ -1094,6 +1095,8 @@ HttpLoadingConnection::HttpLoadingConnection(HttpConnection *parent)
     //m_connection->m_generator.setMessage(QByteArray());
     m_connection->m_socket->write(resp.toString().toUtf8());
 
+  qWarning() << "stream start";
+
     timer_tick();
     {
         QTimer* timer = new QTimer(this);
@@ -1118,8 +1121,9 @@ void HttpLoadingConnection::write_error(int code, QString message)
 
 void HttpLoadingConnection::timer_tick()
 {
-    qWarning() << "maxticks: " << m_maxticks;
+    //qWarning() << "maxticks: " << m_maxticks;
     if (m_maxticks == 0) {
+	  qWarning() << "stream stop";
         m_framedata = QByteArray();
         m_connection->m_socket->write(QString("--" + m_boundary + "--").toUtf8());
         /*
@@ -1237,7 +1241,7 @@ void HttpLoadingConnection::timer_tick()
         + "\r\n"
     ).toUtf8();
 
-    qWarning() << "jpeg size: " << ba.size();
+    //qWarning() << "jpeg size: " << ba.size();
 
     m_framedata = QByteArray();
     m_framedata += QString("--" + m_boundary + "\r\n").toUtf8();
