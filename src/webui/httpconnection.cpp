@@ -57,6 +57,20 @@
 
 using namespace libtorrent;
 
+
+struct media_entry {
+    int index;
+    QString title;
+    QString extension;
+
+    bool operator<(const media_entry& o) const
+    {
+        return title.toLower() < o.title.toLower();
+    }
+};
+
+QList<media_entry> getMediaListFromTorrent(const QTorrentHandle& h);
+
 HttpConnection::HttpConnection(QTcpSocket *socket, HttpServer *parent)
   : QObject(parent), m_socket(socket), m_httpserver(parent)
 {
@@ -195,17 +209,6 @@ void HttpConnection::write_partial()
 {
   m_socket->write(m_generator.toString().toUtf8());
 }
-
-struct media_entry {
-    int index;
-    QString title;
-    QString extension;
-
-    bool operator<(const media_entry& o) const
-    {
-        return title.toLower() < o.title.toLower();
-    }
-};
 
 void HttpConnection::respond() {
   if ((m_socket->peerAddress() != QHostAddress::LocalHost
@@ -466,19 +469,7 @@ void HttpConnection::respond() {
         }
         qWarning() << "playlist";
 
-        QList<media_entry> media;
-        unsigned int nbFiles = h.num_files();
-        for (unsigned int i=0; i<nbFiles; ++i) {
-          QString fileName = h.filename_at(i);
-          qWarning() << "File:" << fileName;
-          if (fileName.endsWith(".!qB"))
-            fileName.chop(4);
-          QString extension = fsutils::fileExtension(fileName).toUpper();
-
-          if (misc::isPreviewable(extension) && fsutils::fileName(fileName) != "sample") {
-              media << media_entry { i, fsutils::fileName(fileName), extension.toLower() };
-          }
-        }
+        QList<media_entry> media = getMediaListFromTorrent(h);
 
         if (media.size() == 0) {
             respondNotFound();
@@ -489,8 +480,6 @@ void HttpConnection::respond() {
             m_generator.setMessage(QByteArray());
             write();
         } else {
-            std::sort(media.begin(), media.end());
-
             for (int i = 0; i < media.size(); ++i) {
                 stream.writeStartElement("entry");
                 stream.writeTextElement("title", media[i].title);
@@ -1186,41 +1175,38 @@ void HttpLoadingConnection::timer_tick()
             double maxpercent = 0;
             libtorrent::torrent_status status = h.status(torrent_handle::query_accurate_download_counters);
             output += "\t" + misc::friendlyUnit(status.download_payload_rate, true) + "\r\n";
-            unsigned int nbFiles = h.num_files();
+
             std::vector<libtorrent::size_type> progress;
             h.file_progress(progress);
-            for (unsigned int i=0; i<nbFiles; ++i) {
-                QString fileName = h.filename_at(i);
-                if (fileName.endsWith(".!qB"))
-                    fileName.chop(4);
-                QString extension = fsutils::fileExtension(fileName);
+            QList<media_entry> media = getMediaListFromTorrent(h);
+            for (int j = 0; j < media.size(); ++j) {
+                int i = media[j].index;
+                QString fileName = media[j].title;
 
-                if (misc::isPreviewable(extension) && fsutils::fileName(fileName) != "sample") {
-                    const file_entry& file = t.file_at(i);
-                    qint64 file_offset = file.offset;
-                    qint64 file_size = file.size;
+                const file_entry& file = t.file_at(i);
+                qint64 file_offset = file.offset;
+                qint64 file_size = file.size;
 
-                    qint64 req_piece = floor((file_offset + req_start + 1) / (float) piece_size);
-                    Q_ASSERT(req_piece >= 0 && req_piece < num_pieces);
-                    qint64 req_offset =  ((req_piece+1) * piece_size) - (file_offset + req_start);
-                    req_offset = piece_size - req_offset;
-                    qint64 max_len_pieces = -req_offset;
-                    qint64 cp = req_piece;
-                    for (; cp < num_pieces && h.have_piece(cp) && max_len_pieces < file_size; ++cp)
-                      max_len_pieces += piece_size;
-                    if (max_len_pieces <= 0)
-                        max_len_pieces = 0;
-                    if (max_len_pieces > file_size)
-                        max_len_pieces = file_size;
-                    QString s;
-                    double pct = 100.0 * max_len_pieces / file_size;
-                    maxpercent = std::max(maxpercent, pct);
-                    s.sprintf("%.1f%%\t", pct);
-                    output += s;
-                    s.sprintf("%.1f%%\t", 100.0 * progress[i] / file_size);
-                    output += s;
-                    output += fsutils::fileName(fileName) + "\r\n";
-                }
+                qint64 req_piece = floor((file_offset + req_start + 1) / (float) piece_size);
+                Q_ASSERT(req_piece >= 0 && req_piece < num_pieces);
+                qint64 req_offset =  ((req_piece+1) * piece_size) - (file_offset + req_start);
+                req_offset = piece_size - req_offset;
+                qint64 max_len_pieces = -req_offset;
+                qint64 cp = req_piece;
+                for (; cp < num_pieces && h.have_piece(cp) && max_len_pieces < file_size; ++cp)
+                  max_len_pieces += piece_size;
+                if (max_len_pieces <= 0)
+                    max_len_pieces = 0;
+                if (max_len_pieces > file_size)
+                    max_len_pieces = file_size;
+                QString s;
+                double pct = 100.0 * max_len_pieces / file_size;
+                maxpercent = std::max(maxpercent, pct);
+                s.sprintf("%.1f%%\t", pct);
+                output += s;
+                s.sprintf("%.1f%%\t", 100.0 * progress[i] / file_size);
+                output += s;
+                output += fsutils::fileName(fileName) + "\r\n";
             }
 
             // wait until we have at least 2.5 percent of a file before we count down the last 5 seconds
@@ -1278,4 +1264,23 @@ void HttpLoadingConnection::frame_tick()
             m_connection->m_socket->close();
         }
     }
+}
+
+QList<media_entry> getMediaListFromTorrent(const QTorrentHandle& h)
+{
+    QList<media_entry> media;
+    unsigned int nbFiles = h.num_files();
+    for (unsigned int i=0; i<nbFiles; ++i) {
+      QString fileName = h.filename_at(i);
+      //qWarning() << "File:" << fileName;
+      if (fileName.endsWith(".!qB"))
+        fileName.chop(4);
+      QString extension = fsutils::fileExtension(fileName).toUpper();
+
+      if (misc::isPreviewable(extension) && fsutils::fileName(fileName) != "sample") {
+          media << media_entry { i, fsutils::fileName(fileName), extension.toLower() };
+      }
+    }
+    std::sort(media.begin(), media.end());
+    return media;
 }
