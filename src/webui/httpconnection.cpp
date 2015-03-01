@@ -1159,7 +1159,7 @@ void HttpLoadingConnection::timer_tick()
     QImage img(1920 / resdiv, 1080 / resdiv, QImage::Format_RGB32);
     {
         QTorrentHandle h = QBtSession::instance()->getTorrentHandle(m_hash);
-        QString output = QString::number(m_maxticks / 2) + "\t" + QTime::currentTime().toString();
+        QString output = QString::number(m_maxticks / 2.0) + "\t" + QTime::currentTime().toString();
         if (h.is_valid() && h.has_metadata()) {
             #if LIBTORRENT_VERSION_NUM < 10000
                 torrent_info const* tf = &h.get_torrent_info();
@@ -1207,6 +1207,13 @@ void HttpLoadingConnection::timer_tick()
                 s.sprintf("%.1f%%\t", 100.0 * progress[i] / file_size);
                 output += s;
                 output += fsutils::fileName(fileName) + "\r\n";
+
+                if (j == 0 && m_maxticks >= 3) {
+                    if (pct < 0.5 && status.download_payload_rate < (1024*1024))
+                        ++m_maxticks;
+                    else
+                        m_maxticks = 3;
+                }
             }
 
             // wait until we have at least 2.5 percent of a file before we count down the last 5 seconds
