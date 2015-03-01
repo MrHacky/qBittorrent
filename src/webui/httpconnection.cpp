@@ -336,6 +336,26 @@ void HttpConnection::respond() {
     QString murl = "magnet:?" + QUrl::fromEncoded(m_parser.header().path().replace("%3A", ":").toLatin1()).query();
     QString hash = m_parser.get("xt").replace("%3A", ":").mid(9); // urn:btih:
 
+    if (hash.size() == 32) {
+        QString newhash;
+        QString alfa = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+        QString hex  = "0123456789abcdef";
+        size_t acc = 0;
+        int bits = 0;
+        hash = hash.toUpper();
+        for (int i = 0; i < 32; ++i) {
+            int val = alfa.indexOf(hash[i]);
+            acc = (acc << 5) | val;
+            bits += 5;
+            while (bits >= 4) {
+                int nibble = (acc >> (bits - 4)) & 0x0f;
+                newhash += hex[nibble];
+                bits -= 4;
+            }
+        }
+        hash = newhash;
+    }
+
     qWarning() << "download: " << murl;
     qWarning() << "hash: " << hash;
     emit MagnetReadyToBeDownloaded(murl);
