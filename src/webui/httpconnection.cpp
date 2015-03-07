@@ -336,7 +336,7 @@ void HttpConnection::respond() {
   [&](){};
 
   if (list[0] == "start") {
-    QString murl = "magnet:?" + QUrl::fromEncoded(m_parser.header().path().replace("%3A", ":").toLatin1()).query();
+    QString murl = "magnet:?" + QUrl::fromEncoded(m_parser.header().path().replace("%3A", ":").toLatin1()).encodedQuery();
     QString hash = m_parser.get("xt").replace("%3A", ":").mid(9); // urn:btih:
 
     if (hash.size() == 32) {
@@ -1094,7 +1094,7 @@ HttpLoadingConnection::HttpLoadingConnection(HttpConnection *parent)
     if (maxticks != "")
         m_maxticks = maxticks.toInt();
 
-    HttpResponseHeader resp;
+    QHttpResponseHeader resp;
     m_boundary = "boundarydonotcross";
 
     //m_connection->m_generator.setContentLength(req_end - req_start);
