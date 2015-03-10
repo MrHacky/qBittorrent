@@ -23,7 +23,7 @@ os2 {
 }
 
 nox {
-  QT -= gui
+  #QT -= gui
   TARGET = qbittorrent-nox
   DEFINES += DISABLE_GUI
 } else {
