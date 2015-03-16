@@ -384,5 +384,9 @@ QByteArray btjson::getTransferInfo()
   session_status sessionStatus = QBtSession::instance()->getSessionStatus();
   info[KEY_TRANSFER_DLSPEED] = tr("D: %1/s - T: %2", "Download speed: x KiB/s - Transferred: x MiB").arg(misc::friendlyUnit(sessionStatus.payload_download_rate, true, true)).arg(misc::friendlyUnit(sessionStatus.total_payload_download, false, true));
   info[KEY_TRANSFER_UPSPEED] = tr("U: %1/s - T: %2", "Upload speed: x KiB/s - Transferred: x MiB").arg(misc::friendlyUnit(sessionStatus.payload_upload_rate, true, true)).arg(misc::friendlyUnit(sessionStatus.total_payload_upload, false, true));
+  info["ul_alltime"] = QString("%1").arg(QBtSession::instance()->getAlltimeUL());
+  info["dl_alltime"] = QString("%1").arg(QBtSession::instance()->getAlltimeDL());
+  info["ul_speed"]   = QString("%1").arg(sessionStatus.payload_upload_rate);
+  info["dl_speed"]   = QString("%1").arg(sessionStatus.payload_download_rate);
   return json::toJson(info);
 }
