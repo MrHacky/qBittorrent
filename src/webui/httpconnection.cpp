@@ -309,6 +309,93 @@ void HttpConnection::respond() {
     }
   }
 
+  if (list[0] == "updateprio" && list.size() == 3) {
+    m_generator.setContentEncoding(m_parser.acceptsEncoding());
+
+    bool ok1 = false, ok2 = false, ok3 = false;
+    QString hash = list[1];
+    QString str_file = list[2];
+    QString str_offset = m_parser.get("offset");
+    QString str_prevprio = m_parser.get("prev");
+    int fidx = str_file.toInt(&ok1);
+    quint64 req_start = str_offset.toULongLong(&ok2);
+    int prevprop = str_prevprio.toInt(&ok3);
+
+    if (!ok1 || !ok2 || !ok3) {
+        m_generator.setStatusLine(404, "Parse error in params.");
+        write();
+        return;
+    }
+
+    QTorrentHandle h = QBtSession::instance()->getTorrentHandle(hash);
+
+    if (!h.is_valid() || !h.has_metadata()) {
+        m_generator.setStatusLine(404, "Torrent or metadata not found.");
+        write();
+        return;
+    }
+
+    #if LIBTORRENT_VERSION_NUM < 10000
+        torrent_info const* tf = &h.get_torrent_info();
+    #else
+        boost::intrusive_ptr<torrent_info const> tf = h.torrent_file();
+    #endif
+    const torrent_info& t = *tf;
+
+    // validate 'file'
+    if (fidx < 0 || fidx >= t.num_files()) {
+        m_generator.setStatusLine(400, "Invalid file index in torrent.");
+        write();
+        return;
+    }
+    const file_entry& file = t.file_at(fidx);
+
+    quint64 file_offset = file.offset;
+    quint64 file_size = file.size;
+    quint64 num_pieces = t.num_pieces();
+    quint64 piece_size = t.piece_length();
+    quint64 max_len = file_size;
+
+    quint64 req_piece = floor((file_offset + req_start + 1) / (float) piece_size);
+    Q_ASSERT(req_piece >= 0 && req_piece < num_pieces);
+    quint64 req_offset = ((req_piece + 1) * piece_size) - (file_offset + req_start);
+    req_offset = piece_size - req_offset;
+    quint64 max_len_pieces = 0;
+    quint64 cp = req_piece;
+    for (; cp < num_pieces && h.have_piece(cp); ++cp)
+        max_len_pieces += piece_size;
+
+    if (max_len_pieces != 0)
+        max_len_pieces -= req_offset;
+    max_len = std::min(max_len, max_len_pieces);
+    max_len = std::min(max_len, file_size - req_start);
+
+    int newprio = -1;
+    if (prevprop != -2) {
+        h.set_sequential_download(true);
+        if (prevprop != req_piece) {
+            if (prevprop != -1)
+                h.piece_priority(prevprop, 1);
+            if (max_len != file_size - req_start) {
+                h.piece_priority(req_piece, 7);
+                newprio = req_piece;
+            }
+        }
+    }
+
+    QString msg = QString("{"
+        "\"blocking_piece\": %1,"
+        "\"start_piece\": %2,"
+        "\"new\": %3,"
+        "\"max_length\": %4"
+    "}").arg(cp).arg(req_piece).arg(newprio).arg(max_len);
+
+    m_generator.setStatusLine(200, "OK");
+    m_generator.setMessage(msg);
+    write();
+    return;
+  }
+
   // Icons from theme
   //qDebug() << "list[0]" << list[0];
   if (list[0] == "theme" && list.size() == 2) {
