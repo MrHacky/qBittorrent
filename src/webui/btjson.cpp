@@ -355,6 +355,8 @@ QByteArray btjson::getFilesForTorrent(const QString& hash)
       file_dict[KEY_FILE_NAME] = fileName;
       const size_type size = h.filesize_at(i);
       file_dict[KEY_FILE_SIZE] = misc::friendlyUnit(size, false, true);
+      file_dict["file_path"] = h.absolute_files_path()[i];
+      file_dict["size_bytes"] = QString("%1").arg(size);
       file_dict[KEY_FILE_PROGRESS] = (size > 0) ? (fp[i] / (double) size) : 1.;
       file_dict[KEY_FILE_PRIORITY] = priorities[i];
       if (i == 0)
