@@ -320,7 +320,7 @@ void HttpConnection::respond() {
     QString str_prevprio = m_parser.get("prev");
     int fidx = str_file.toInt(&ok1);
     quint64 req_start = str_offset.toULongLong(&ok2);
-    int prevprop = str_prevprio.toInt(&ok3);
+    int prio = str_prevprio.toInt(&ok3);
 
     if (!ok1 || !ok2 || !ok3) {
         m_generator.setStatusLine(404, "Parse error in params.");
@@ -371,16 +371,16 @@ void HttpConnection::respond() {
     max_len = std::min(max_len, max_len_pieces);
     max_len = std::min(max_len, file_size - req_start);
 
-    int newprio = -1;
-    if (prevprop != -2) {
+    if (prio != -2) {
         h.set_sequential_download(true);
-        if (prevprop != req_piece) {
-            if (prevprop != -1)
-                h.piece_priority(prevprop, 1);
+        if (prio != req_piece) {
+            if (prio != -1)
+                h.piece_priority(prio, 1);
             if (max_len != file_size - req_start) {
-                h.piece_priority(req_piece, 7);
-                newprio = req_piece;
-            }
+                prio = req_piece;
+                h.piece_priority(prio, 7);
+            } else
+                prio = -1;
         }
     }
 
@@ -389,7 +389,7 @@ void HttpConnection::respond() {
         "\"start_piece\": %2,"
         "\"new\": %3,"
         "\"max_length\": %4"
-    "}").arg(cp).arg(req_piece).arg(newprio).arg(max_len);
+    "}").arg(cp).arg(req_piece).arg(prio).arg(max_len);
 
     m_generator.setStatusLine(200, "OK");
     m_generator.setMessage(msg);
